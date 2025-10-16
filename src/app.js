@@ -62,26 +62,76 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const User = require("./models/user");
+const {validateSignUpData}=require("./utilis/validation")
+const bcrypt =require("bcrypt");
 
 const app = express();
 app.use(express.json());
 
-// Signup route
-app.post("/signup", async (req, res) => {
-  try {
-    const { name, email, password } = req.body;
 
-    console.log("Received body:", req.body);
+app.post("/login",async(req,res)=>{
+  try{
+    const{email,password} =req.body;
 
-    if (!name || !email || !password) {
-      return res.status(400).send("All fields are required");
+    const user = await User.findOne({email});
+    if(!user){
+      throw new Error(" Invalid credentials");
+    }
+    const isPasswordValid=bcrypt.compare(password,user.password);
+    if(isPasswordValid){
+      res.send("login Successfully!")
+    }else{
+      throw new Error(" Invalid credentials");
     }
 
-    const user = await User.create({ name, email, password });
-    res.status(201).json(user);
-  } catch (err) {
-    console.error(err.stack);
-    res.status(400).send(err.message);
+  }catch(err){
+    res.status(400).send("ERROR:"+err.message);
+  }
+}); 
+
+// Signup route
+
+// app.post("/signup", async (req, res) => {
+//   try {
+//     const { name, email, password } = req.body;
+
+//     console.log("Received body:", req.body);
+
+//     if (!name || !email || !password) {
+//       return res.status(400).send("All fields are required");
+//     }
+
+//     const user = await User.create({ name, email, password });
+//     res.status(201).json(user);
+//   } catch (err) {
+//     console.error(err.stack);
+//     res.status(400).send(err.message);
+//   }
+// });
+
+
+app.post("/signup",async(req,res)=>{
+  try{
+    //validation of data
+    validateSignUpData(req);
+
+    const {password} =req.body;
+
+    //ecrypt the password
+  const passwordHash=await bcrypt.hash(password,10);
+  console.log(passwordHash);
+
+  //Creating a new instance of the user model
+  const user=new User({
+    name, 
+    email,
+    password :passwordHash,
+  });
+
+  await user.save();
+  res.send("user added successfully"); 
+  }catch(err){
+     res.status(400).send("ERROR:" + err.message);
   }
 });
 
@@ -126,20 +176,42 @@ app.delete("/user",async(req,res)=>{
   });
 
 //update or patch
-app.patch("/user",async(req,res)=>{
-  const userId =req.body.userId;
-  const data=req.body;
+app.patch("/user/:userId", async (req, res) => {
+  const userId = req.params.userId;
+  const data = req.body;
 
-  try{
-    const user=await User.findByIdAndUpdate({_id:userId},data,{
-      returnDocument:"after",
+  try {
+    const ALLOWED_UPDATES = ["name","gender", "age", "skills"];
+
+    const isUpdateAllowed = Object.keys(data).every((key) =>
+      ALLOWED_UPDATES.includes(key)
+    );
+
+    if (!isUpdateAllowed) {
+      throw new Error("Update not allowed for some fields");
+    }
+
+    if (data?.skills && data.skills.length > 10) {
+      throw new Error("Too many skills, update not allowed");
+    }
+
+    const user = await User.findByIdAndUpdate(userId, data, {
+      new: true,
+      runValidators: true,
     });
-    console.log(user);
-    res.send("user updated successfully");
-  }catch(err){
-    res.status(400).send("something went wrong")
+
+    if (!user) {
+      return res.status(404).send("User not found");
+    }
+
+    res.status(200).json({
+      message: "User updated successfully",
+      updatedUser: user,
+    });
+  } catch (err) {
+    res.status(400).json({ error: `Update failed: ${err.message}` });
   }
-})
+});
 
 
 // Connect to MongoDB and start the server
